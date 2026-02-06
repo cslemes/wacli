@@ -8,8 +8,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/steipete/wacli/internal/ai"
+	"github.com/steipete/wacli/internal/config"
 	"github.com/steipete/wacli/internal/store"
 	"github.com/steipete/wacli/internal/wa"
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
@@ -30,8 +33,9 @@ type SyncOptions struct {
 	DownloadMedia   bool
 	RefreshContacts bool
 	RefreshGroups   bool
-	IdleExit        time.Duration // only used for bootstrap/once
-	Verbosity       int           // future
+	IdleExit        time.Duration  // only used for bootstrap/once
+	Verbosity       int            // future
+	Config          *config.Config // AI and other config
 }
 
 type SyncResult struct {
@@ -81,6 +85,15 @@ func (a *App) Sync(ctx context.Context, opts SyncOptions) (SyncResult, error) {
 
 	handlerID := a.wa.AddEventHandler(func(evt interface{}) {
 		lastEvent.Store(time.Now().UTC().UnixNano())
+
+		// AI handler for audio transcription
+		if opts.Config != nil && opts.Config.AI.Enabled && opts.Config.AI.GroqAPIKey != "" {
+			if waCli, ok := a.wa.(interface{ GetClient() interface{} }); ok {
+				if client, ok := waCli.GetClient().(*whatsmeow.Client); ok && client != nil {
+					ai.HandleMessages(ctx, client, evt, opts.Config)
+				}
+			}
+		}
 
 		switch v := evt.(type) {
 		case *events.Message:

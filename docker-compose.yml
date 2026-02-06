@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  wacli-api:
+    build: .
+    container_name: wacli-api
+    ports:
+      - "8080:8080"
+    environment:
+      - WACLI_API_KEYS=${WACLI_API_KEYS}
+      - WACLI_API_HOST=0.0.0.0
+      - WACLI_API_PORT=8080
+      - GIN_MODE=release
+    volumes:
+      - ./data:/root/.wacli
+    restart: unless-stopped
+    networks:
+      - wacli-network
+
+networks:
+  wacli-network:
+    driver: bridge

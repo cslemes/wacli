@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WACLI - WhatsApp Connection</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            width: 100%;
+            padding: 40px;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .status-card {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-indicator.connected {
+            background: #28a745;
+            box-shadow: 0 0 0 3px rgba(40, 167, 69, 0.2);
+        }
+
+        .status-indicator.disconnected {
+            background: #dc3545;
+            box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.2);
+        }
+
+        .status-text {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .qr-container {
+            text-align: center;
+            padding: 20px;
+            background: white;
+            border-radius: 12px;
+            border: 2px dashed #dee2e6;
+            margin: 20px 0;
+        }
+
+        .qr-code img {
+            max-width: 256px;
+            width: 100%;
+            height: auto;
+            border-radius: 8px;
+        }
+
+        .qr-instructions {
+            margin-top: 15px;
+            color: #666;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        button {
+            width: 100%;
+            padding: 14px 20px;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 10px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn-danger {
+            background: #dc3545;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #c82333;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(220, 53, 69, 0.3);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🗃️ WACLI</h1>
+        <p class="subtitle">WhatsApp CLI Connection Manager</p>
+
+        <!-- Status Section -->
+        <div id="status-section" hx-get="/api/v1/auth/status" hx-trigger="load, every 5s" hx-target="#status-section"
+            hx-swap="innerHTML">
+            <div class="status-card">
+                <span class="status-indicator disconnected"></span>
+                <span class="status-text">Checking connection...</span>
+            </div>
+        </div>
+
+        <!-- Actions Section -->
+        <div id="actions-section">
+            <!-- This will be populated by status response -->
+        </div>
+
+        <!-- QR Code Section -->
+        <div id="qr-section" class="hidden">
+            <!-- QR code will be inserted here -->
+        </div>
+
+        <!-- Messages Section -->
+        <div id="messages">
+            <!-- Success/error messages will appear here -->
+        </div>
+    </div>
+
+    <script>
+        // Get API key from environment or prompt user
+        const API_KEY = prompt('Enter API Key:', '');
+
+        if (!API_KEY) {
+            document.body.innerHTML = '<div style="text-align:center;padding:50px;color:white;"><h1>API Key Required</h1><p>Please refresh and enter your API key</p></div>';
+        }
+
+        // Configure HTMX to include API key in all requests
+        document.body.addEventListener('htmx:configRequest', function (evt) {
+            evt.detail.headers['X-API-Key'] = API_KEY;
+        });
+
+        // Handle status response
+        document.body.addEventListener('htmx:afterSwap', function (evt) {
+            if (evt.detail.target.id === 'status-section') {
+                try {
+                    const response = JSON.parse(evt.detail.xhr.responseText);
+                    updateUI(response);
+                } catch (e) {
+                    console.error('Failed to parse status', e);
+                }
+            }
+        });
+
+        function updateUI(status) {
+            const actionsSection = document.getElementById('actions-section');
+            const qrSection = document.getElementById('qr-section');
+            const messages = document.getElementById('messages');
+
+            if (status.authenticated) {
+                // Clear polling interval if it exists
+                if (window.connectionPollInterval) {
+                    clearInterval(window.connectionPollInterval);
+                    window.connectionPollInterval = null;
+                }
+
+                messages.innerHTML = '<div class="success">✅ Connected successfully!</div>';
+                setTimeout(() => { messages.innerHTML = ''; }, 3000);
+
+                actionsSection.innerHTML = `
+                    <button class="btn-danger" 
+                            hx-post="/api/v1/auth/logout"
+                            hx-trigger="click"
+                            hx-confirm="Are you sure you want to disconnect?"
+                            hx-on::after-request="handleLogout(event)">
+                        Disconnect WhatsApp
+                    </button>
+                `;
+                qrSection.classList.add('hidden');
+            } else {
+                actionsSection.innerHTML = `
+                    <button class="btn-primary" onclick="showQR()">
+                        Connect WhatsApp
+                    </button>
+                `;
+            }
+        }
+
+        function showQR() {
+            const qrSection = document.getElementById('qr-section');
+            const messages = document.getElementById('messages');
+
+            messages.innerHTML = '<div class="info">Loading QR code...</div>';
+            qrSection.classList.add('hidden');
+
+            fetch('/api/v1/auth/qr', {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': API_KEY
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    messages.innerHTML = '';
+                    if (data.error) {
+                        messages.innerHTML = `<div class="error">${data.error}</div>`;
+                        return;
+                    }
+
+                    qrSection.innerHTML = `
+                    <div class="qr-container">
+                        <div class="qr-code">
+                            <img src="${data.qr_code_png}" alt="QR Code">
+                        </div>
+                        <div class="qr-instructions">
+                            <strong>Scan this QR code with WhatsApp:</strong><br>
+                            Open WhatsApp → Settings → Linked Devices → Link a Device
+                            <div style="margin-top: 10px; font-size: 12px; color: #999;">
+                                QR code expires in ${data.expires_in} seconds
+                            </div>
+                            <div style="margin-top: 10px;">
+                                <small style="color: #666;">Waiting for scan...</small>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                    qrSection.classList.remove('hidden');
+
+                    // Poll status every 2 seconds for 60 seconds to detect connection
+                    let attempts = 0;
+                    const maxAttempts = 30; // 60 seconds
+                    const pollInterval = setInterval(() => {
+                        attempts++;
+                        htmx.trigger('#status-section', 'load');
+
+                        // Check if connected (updateUI will be called)
+                        // Stop polling after max attempts
+                        if (attempts >= maxAttempts) {
+                            clearInterval(pollInterval);
+                            messages.innerHTML = '<div class="error">QR code expired. Please try again.</div>';
+                            qrSection.classList.add('hidden');
+                        }
+                    }, 2000);
+
+                    // Store interval ID to clear it when connected
+                    window.connectionPollInterval = pollInterval;
+                })
+                .catch(error => {
+                    messages.innerHTML = `<div class="error">Failed to load QR code: ${error.message}</div>`;
+                });
+        }
+
+        function handleLogout(event) {
+            const messages = document.getElementById('messages');
+            const xhr = event.detail.xhr;
+
+            try {
+                const response = JSON.parse(xhr.responseText);
+                if (response.logged_out) {
+                    messages.innerHTML = '<div class="success">Successfully disconnected!</div>';
+                    setTimeout(() => {
+                        messages.innerHTML = '';
+                        htmx.trigger('#status-section', 'load');
+                    }, 2000);
+                } else if (response.error) {
+                    messages.innerHTML = `<div class="error">${response.error}</div>`;
+                }
+            } catch (e) {
+                messages.innerHTML = '<div class="error">Logout failed</div>';
+            }
+        }
+    </script>
+</body>
+
+</html>

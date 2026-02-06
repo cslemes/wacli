@@ -85,6 +85,13 @@ func (c *Client) IsConnected() bool {
 	return c.client != nil && c.client.IsConnected()
 }
 
+// GetClient returns the underlying whatsmeow.Client for advanced use cases
+func (c *Client) GetClient() *whatsmeow.Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.client
+}
+
 type ConnectOptions struct {
 	AllowQR  bool
 	OnQRCode func(code string)
@@ -337,6 +344,26 @@ func (c *Client) GetGroupInfo(ctx context.Context, jid types.JID) (*types.GroupI
 		return nil, fmt.Errorf("not connected")
 	}
 	return cli.GetGroupInfo(ctx, jid)
+}
+
+func (c *Client) PairPhone(ctx context.Context, phoneNumber string) (string, error) {
+	c.mu.Lock()
+	cli := c.client
+	c.mu.Unlock()
+	if cli == nil {
+		return "", fmt.Errorf("not initialized")
+	}
+
+	// Clean up phone number (remove spaces, dashes, etc.)
+	phoneNumber = strings.ReplaceAll(phoneNumber, " ", "")
+	phoneNumber = strings.ReplaceAll(phoneNumber, "-", "")
+	phoneNumber = strings.ReplaceAll(phoneNumber, "+", "")
+
+	code, err := cli.PairPhone(ctx, phoneNumber, true, whatsmeow.PairClientChrome, "Chrome (Linux)")
+	if err != nil {
+		return "", fmt.Errorf("pair phone: %w", err)
+	}
+	return code, nil
 }
 
 func (c *Client) Logout(ctx context.Context) error {
