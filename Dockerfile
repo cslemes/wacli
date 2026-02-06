@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.25-alpine AS builder
+FROM golang:1.23-alpine AS builder
 
 WORKDIR /app
 
@@ -25,6 +25,9 @@ WORKDIR /root/
 
 # Copy the binary from builder
 COPY --from=builder /app/wacli-api .
+
+# Copy the web directory for frontend
+COPY --from=builder /app/web ./web
 
 # Create data directory
 RUN mkdir -p /root/.wacli

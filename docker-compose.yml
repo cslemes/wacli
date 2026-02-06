@@ -6,16 +6,19 @@ services:
     container_name: wacli-api
     ports:
       - "8080:8080"
+    env_file:
+      - .env
     environment:
-      - WACLI_API_KEYS=${WACLI_API_KEYS}
-      - WACLI_API_HOST=0.0.0.0
-      - WACLI_API_PORT=8080
-      - GIN_MODE=release
+      - WACLI_STORE_DIR=/root/.wacli
     volumes:
-      - ./data:/root/.wacli
+      - wacli-data:/root/.wacli
     restart: unless-stopped
     networks:
       - wacli-network
+
+volumes:
+  wacli-data:
+    driver: local
 
 networks:
   wacli-network:

@@ -15,19 +15,37 @@ import (
 
 // GrafanaAlert represents the incoming Grafana webhook payload
 type GrafanaAlert struct {
-	Title       string            `json:"title"`
-	State       string            `json:"state"`
-	Message     string            `json:"message"`
+	Receiver          string            `json:"receiver"`
+	Status            string            `json:"status"`
+	State             string            `json:"state"`
+	Title             string            `json:"title"`
+	Message           string            `json:"message"`
+	ExternalURL       string            `json:"externalURL"`
+	Version           string            `json:"version"`
+	GroupKey          string            `json:"groupKey"`
+	OrgID             int64             `json:"orgId"`
+	GroupLabels       map[string]string `json:"groupLabels"`
+	CommonLabels      map[string]string `json:"commonLabels"`
+	CommonAnnotations map[string]string `json:"commonAnnotations"`
+	TruncatedAlerts   int               `json:"truncatedAlerts"`
+	Alerts            []struct {
+		Status       string                 `json:"status"`
+		Labels       map[string]string      `json:"labels"`
+		Annotations  map[string]string      `json:"annotations"`
+		StartsAt     string                 `json:"startsAt"`
+		EndsAt       string                 `json:"endsAt"`
+		GeneratorURL string                 `json:"generatorURL"`
+		Fingerprint  string                 `json:"fingerprint"`
+		SilenceURL   string                 `json:"silenceURL"`
+		DashboardURL string                 `json:"dashboardURL"`
+		PanelURL     string                 `json:"panelURL"`
+		Values       map[string]interface{} `json:"values"`
+	} `json:"alerts"`
+
+	// Legacy fields for older Grafana versions
 	RuleURL     string            `json:"ruleUrl"`
 	EvalMatches []GrafanaMatch    `json:"evalMatches"`
 	Tags        map[string]string `json:"tags"`
-	// For newer Grafana versions (v9+)
-	Alerts []struct {
-		Labels      map[string]string `json:"labels"`
-		Annotations map[string]string `json:"annotations"`
-	} `json:"alerts"`
-	CommonLabels      map[string]string `json:"commonLabels"`
-	CommonAnnotations map[string]string `json:"commonAnnotations"`
 }
 
 type GrafanaMatch struct {
@@ -123,24 +141,79 @@ func formatGrafanaMessage(alert GrafanaAlert) string {
 
 	// Status emoji
 	emoji := "🔔"
-	switch alert.State {
-	case "alerting":
+	state := alert.State
+	if state == "" {
+		state = alert.Status
+	}
+
+	switch state {
+	case "alerting", "firing":
 		emoji = "🚨"
-	case "ok":
+	case "ok", "resolved":
 		emoji = "✅"
 	case "no_data":
 		emoji = "⚠️"
 	}
 
 	sb.WriteString(fmt.Sprintf("%s *Grafana Alert*\n\n", emoji))
-	sb.WriteString(fmt.Sprintf("*%s*\n", alert.Title))
-	sb.WriteString(fmt.Sprintf("Status: %s\n\n", strings.ToUpper(alert.State)))
 
+	// Use title from payload or build from labels
+	title := alert.Title
+	if title == "" && alert.CommonLabels != nil {
+		if name, ok := alert.CommonLabels["alertname"]; ok {
+			title = name
+		}
+	}
+	if title != "" {
+		sb.WriteString(fmt.Sprintf("*%s*\n", title))
+	}
+
+	sb.WriteString(fmt.Sprintf("Status: %s\n\n", strings.ToUpper(state)))
+
+	// Use message from payload
 	if alert.Message != "" {
 		sb.WriteString(fmt.Sprintf("%s\n\n", alert.Message))
 	}
 
-	// Add matched metrics if available
+	// Add firing alerts count
+	if len(alert.Alerts) > 0 {
+		firingCount := 0
+		for _, a := range alert.Alerts {
+			if a.Status == "firing" {
+				firingCount++
+			}
+		}
+		if firingCount > 0 {
+			sb.WriteString(fmt.Sprintf("*Firing:* %d alert(s)\n\n", firingCount))
+		}
+
+		// Show details of first few alerts
+		maxAlerts := 3
+		for i, a := range alert.Alerts {
+			if i >= maxAlerts {
+				sb.WriteString(fmt.Sprintf("... and %d more\n\n", len(alert.Alerts)-maxAlerts))
+				break
+			}
+
+			if alertName, ok := a.Labels["alertname"]; ok {
+				sb.WriteString(fmt.Sprintf("• %s", alertName))
+				if instance, ok := a.Labels["instance"]; ok {
+					sb.WriteString(fmt.Sprintf(" (%s)", instance))
+				}
+				sb.WriteString("\n")
+			}
+
+			// Show values if present
+			if len(a.Values) > 0 {
+				for k, v := range a.Values {
+					sb.WriteString(fmt.Sprintf("  %s: %v\n", k, v))
+				}
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	// Add legacy evalMatches if present
 	if len(alert.EvalMatches) > 0 {
 		sb.WriteString("*Metrics:*\n")
 		for _, match := range alert.EvalMatches {
@@ -149,17 +222,31 @@ func formatGrafanaMessage(alert GrafanaAlert) string {
 		sb.WriteString("\n")
 	}
 
-	// Add tags if available
-	if len(alert.Tags) > 0 {
-		sb.WriteString("*Tags:*\n")
-		for key, value := range alert.Tags {
-			sb.WriteString(fmt.Sprintf("• %s: %s\n", key, value))
+	// Add important labels
+	if alert.CommonLabels != nil {
+		important := []string{"severity", "priority", "team", "service", "namespace"}
+		hasImportant := false
+		for _, key := range important {
+			if value, ok := alert.CommonLabels[key]; ok {
+				if !hasImportant {
+					sb.WriteString("*Labels:*\n")
+					hasImportant = true
+				}
+				sb.WriteString(fmt.Sprintf("• %s: %s\n", key, value))
+			}
 		}
-		sb.WriteString("\n")
+		if hasImportant {
+			sb.WriteString("\n")
+		}
 	}
 
-	if alert.RuleURL != "" {
+	// Add link
+	if alert.ExternalURL != "" {
+		sb.WriteString(fmt.Sprintf("🔗 %s", alert.ExternalURL))
+	} else if alert.RuleURL != "" {
 		sb.WriteString(fmt.Sprintf("🔗 %s", alert.RuleURL))
+	} else if len(alert.Alerts) > 0 && alert.Alerts[0].GeneratorURL != "" {
+		sb.WriteString(fmt.Sprintf("🔗 %s", alert.Alerts[0].GeneratorURL))
 	}
 
 	return sb.String()
