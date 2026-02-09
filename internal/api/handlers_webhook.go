@@ -109,7 +109,9 @@ func webhookGrafanaHandler(app *app.App, cfg *Config) gin.HandlerFunc {
 			trimmed := strings.TrimSpace(rawPayload)
 			if trimmed == "" {
 				c.JSON(http.StatusBadRequest, gin.H{
-					"error": "empty request body",
+					"error":   "empty or whitespace-only request body",
+					"help":    "In Grafana Webhook Contact Point, clear the 'Message' field so Grafana sends its default JSON payload. If using a custom template, make sure it is saved correctly in Alerting → Contact Points → Notification Templates.",
+					"payload": fmt.Sprintf("%q", rawPayload),
 				})
 				return
 			}
