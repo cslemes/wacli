@@ -220,8 +220,8 @@ func formatGrafanaMessage(alert GrafanaAlert) string {
 
 	sb.WriteString(fmt.Sprintf("Status: %s\n\n", strings.ToUpper(state)))
 
-	// Use message from payload
-	if alert.Message != "" {
+	// Only use Grafana's pre-rendered message if we have no alerts data to format ourselves
+	if alert.Message != "" && len(alert.Alerts) == 0 {
 		sb.WriteString(fmt.Sprintf("%s\n\n", alert.Message))
 	}
 
