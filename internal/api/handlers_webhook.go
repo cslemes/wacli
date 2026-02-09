@@ -225,41 +225,113 @@ func formatGrafanaMessage(alert GrafanaAlert) string {
 		sb.WriteString(fmt.Sprintf("%s\n\n", alert.Message))
 	}
 
-	// Add firing alerts count
-	if len(alert.Alerts) > 0 {
-		firingCount := 0
-		for _, a := range alert.Alerts {
-			if a.Status == "firing" {
-				firingCount++
-			}
+	// Separate firing and resolved alerts
+	var firing, resolved []struct {
+		Status       string                 `json:"status"`
+		Labels       map[string]string      `json:"labels"`
+		Annotations  map[string]string      `json:"annotations"`
+		StartsAt     string                 `json:"startsAt"`
+		EndsAt       string                 `json:"endsAt"`
+		GeneratorURL string                 `json:"generatorURL"`
+		Fingerprint  string                 `json:"fingerprint"`
+		SilenceURL   string                 `json:"silenceURL"`
+		DashboardURL string                 `json:"dashboardURL"`
+		PanelURL     string                 `json:"panelURL"`
+		Values       map[string]interface{} `json:"values"`
+	}
+	for _, a := range alert.Alerts {
+		if a.Status == "resolved" {
+			resolved = append(resolved, a)
+		} else {
+			firing = append(firing, a)
 		}
-		if firingCount > 0 {
-			sb.WriteString(fmt.Sprintf("*Firing:* %d alert(s)\n\n", firingCount))
-		}
+	}
 
-		// Show details of first few alerts
-		maxAlerts := 3
-		for i, a := range alert.Alerts {
+	// Helper to get the best display name for an alert
+	alertDisplayName := func(a struct {
+		Status       string                 `json:"status"`
+		Labels       map[string]string      `json:"labels"`
+		Annotations  map[string]string      `json:"annotations"`
+		StartsAt     string                 `json:"startsAt"`
+		EndsAt       string                 `json:"endsAt"`
+		GeneratorURL string                 `json:"generatorURL"`
+		Fingerprint  string                 `json:"fingerprint"`
+		SilenceURL   string                 `json:"silenceURL"`
+		DashboardURL string                 `json:"dashboardURL"`
+		PanelURL     string                 `json:"panelURL"`
+		Values       map[string]interface{} `json:"values"`
+	}) string {
+		// Priority: monitor_name > name > alertname > instance
+		if name, ok := a.Labels["monitor_name"]; ok && name != "" {
+			return name
+		}
+		if name, ok := a.Labels["name"]; ok && name != "" {
+			return name
+		}
+		if name, ok := a.Labels["alertname"]; ok && name != "" {
+			return name
+		}
+		if inst, ok := a.Labels["instance"]; ok && inst != "" {
+			return inst
+		}
+		return "unknown"
+	}
+
+	// Helper to format a list of alerts
+	formatAlertList := func(alerts []struct {
+		Status       string                 `json:"status"`
+		Labels       map[string]string      `json:"labels"`
+		Annotations  map[string]string      `json:"annotations"`
+		StartsAt     string                 `json:"startsAt"`
+		EndsAt       string                 `json:"endsAt"`
+		GeneratorURL string                 `json:"generatorURL"`
+		Fingerprint  string                 `json:"fingerprint"`
+		SilenceURL   string                 `json:"silenceURL"`
+		DashboardURL string                 `json:"dashboardURL"`
+		PanelURL     string                 `json:"panelURL"`
+		Values       map[string]interface{} `json:"values"`
+	}, maxAlerts int) {
+		for i, a := range alerts {
 			if i >= maxAlerts {
-				sb.WriteString(fmt.Sprintf("... and %d more\n\n", len(alert.Alerts)-maxAlerts))
+				sb.WriteString(fmt.Sprintf("  _... and %d more_\n", len(alerts)-maxAlerts))
 				break
 			}
 
-			if alertName, ok := a.Labels["alertname"]; ok {
-				sb.WriteString(fmt.Sprintf("• %s", alertName))
-				if instance, ok := a.Labels["instance"]; ok {
-					sb.WriteString(fmt.Sprintf(" (%s)", instance))
-				}
-				sb.WriteString("\n")
+			name := alertDisplayName(a)
+
+			// Add extra context: monitor_type, monitor_hostname
+			var details []string
+			if mtype, ok := a.Labels["monitor_type"]; ok && mtype != "" {
+				details = append(details, mtype)
+			}
+			if host, ok := a.Labels["monitor_hostname"]; ok && host != "" {
+				details = append(details, host)
 			}
 
-			// Show values if present
-			if len(a.Values) > 0 {
-				for k, v := range a.Values {
-					sb.WriteString(fmt.Sprintf("  %s: %v\n", k, v))
-				}
+			if len(details) > 0 {
+				sb.WriteString(fmt.Sprintf("• *%s* (%s)\n", name, strings.Join(details, " | ")))
+			} else {
+				sb.WriteString(fmt.Sprintf("• *%s*\n", name))
+			}
+
+			// Show summary/description from annotations
+			if summary, ok := a.Annotations["summary"]; ok && summary != "" {
+				sb.WriteString(fmt.Sprintf("  %s\n", summary))
 			}
 		}
+	}
+
+	// Firing alerts
+	if len(firing) > 0 {
+		sb.WriteString(fmt.Sprintf("*🔥 Firing:* %d alert(s)\n", len(firing)))
+		formatAlertList(firing, 10)
+		sb.WriteString("\n")
+	}
+
+	// Resolved alerts
+	if len(resolved) > 0 {
+		sb.WriteString(fmt.Sprintf("*✅ Resolved:* %d alert(s)\n", len(resolved)))
+		formatAlertList(resolved, 5)
 		sb.WriteString("\n")
 	}
 
@@ -272,9 +344,9 @@ func formatGrafanaMessage(alert GrafanaAlert) string {
 		sb.WriteString("\n")
 	}
 
-	// Add important labels
+	// Add important labels (skip noisy ones)
 	if alert.CommonLabels != nil {
-		important := []string{"severity", "priority", "team", "service", "namespace"}
+		important := []string{"severity", "priority", "team", "service", "namespace", "job"}
 		hasImportant := false
 		for _, key := range important {
 			if value, ok := alert.CommonLabels[key]; ok {
