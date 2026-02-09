@@ -1,0 +1,95 @@
+{{/*
+  Grafana Notification Templates for wacli WhatsApp Webhook
+  
+  ============================================================
+  OPTION 1 — /api/v1/webhook/grafana (RECOMMENDED)
+  ============================================================
+  No template needed! The wacli server formats the message automatically.
+  Just configure Grafana Webhook Contact Point with:
+  
+    URL:  http://<WACLI_HOST>:<PORT>/api/v1/webhook/grafana?to=<PHONE>
+    HTTP Method: POST
+    Authorization Header: Bearer <API_KEY>
+  
+  Leave the "Message" field EMPTY — wacli handles formatting.
+  
+  ============================================================
+  OPTION 2 — /api/v1/webhook/generic (with custom template)
+  ============================================================
+  Use this template if you want Grafana to control message formatting.
+  
+  1. In Grafana: Alerting → Contact Points → Notification Templates
+  2. Create template named "wacli-whatsapp", paste the template below
+  3. Configure Webhook Contact Point:
+     URL:  http://<WACLI_HOST>:<PORT>/api/v1/webhook/generic?to=<PHONE>
+     HTTP Method: POST
+     Authorization Header: Bearer <API_KEY>
+     Title:   {{ template "wacli-whatsapp.title" . }}
+     Message: {{ template "wacli-whatsapp" . }}
+  ============================================================
+*/}}
+
+{{ define "wacli-whatsapp.title" -}}
+[{{ .Status | toUpper }}:{{ len .Alerts.Firing }}] {{ .GroupLabels.alertname }}
+{{- end }}
+
+{{ define "__wacli_alert_list" -}}
+{{ range . -}}
+• *{{ .Labels.alertname }}*{{- if .Labels.instance }} ({{ .Labels.instance }}){{ end }}
+{{- if .Labels.severity }}
+  Severity: {{ .Labels.severity }}
+{{- end }}
+{{- if .Annotations.summary }}
+  {{ .Annotations.summary }}
+{{- end }}
+{{- if .Annotations.description }}
+  {{ .Annotations.description }}
+{{- end }}
+{{- if .Values }}
+{{- range $k, $v := .Values }}
+  {{ $k }}: {{ $v }}
+{{- end }}
+{{- end }}
+{{- if .DashboardURL }}
+  📊 {{ .DashboardURL }}
+{{- end }}
+{{- if .SilenceURL }}
+  🔇 {{ .SilenceURL }}
+{{- end }}
+{{ end -}}
+{{- end }}
+
+{{ define "wacli-whatsapp" -}}
+{{ if eq .Status "firing" }}🚨{{ else if eq .Status "resolved" }}✅{{ else }}🔔{{ end }} *Grafana Alert*
+
+*{{ .Status | toUpper }}:* {{ .GroupLabels.alertname }}
+{{- if .CommonAnnotations.summary }}
+{{ .CommonAnnotations.summary }}
+{{- end }}
+{{- if .CommonAnnotations.description }}
+{{ .CommonAnnotations.description }}
+{{- end }}
+
+{{- if gt (len .Alerts.Firing) 0 }}
+
+*Firing:* {{ len .Alerts.Firing }} alert(s)
+{{ template "__wacli_alert_list" .Alerts.Firing }}
+{{- end }}
+
+{{- if gt (len .Alerts.Resolved) 0 }}
+
+*Resolved:* {{ len .Alerts.Resolved }} alert(s)
+{{ template "__wacli_alert_list" .Alerts.Resolved }}
+{{- end }}
+
+{{- if .CommonLabels.SortedPairs }}
+*Labels:*
+{{- range .CommonLabels.SortedPairs }}
+{{- if or (eq .Name "severity") (eq .Name "priority") (eq .Name "team") (eq .Name "service") (eq .Name "namespace") }}
+• {{ .Name }}: {{ .Value }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+🔗 {{ .ExternalURL }}
+{{- end }}

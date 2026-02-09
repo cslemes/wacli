@@ -1,0 +1,85 @@
+# Grafana Provisioning: wacli WhatsApp Notification Template + Contact Point
+#
+# Place this file at: /etc/grafana/provisioning/alerting/wacli-whatsapp.yaml
+# Then restart Grafana.
+#
+# Adjust WACLI_HOST, PORT, API_KEY, and PHONE_NUMBER to match your setup.
+
+apiVersion: 1
+
+contactPoints:
+  - orgId: 1
+    name: wacli-whatsapp
+    receivers:
+      - uid: wacli-webhook-1
+        type: webhook
+        settings:
+          url: "http://WACLI_HOST:PORT/api/v1/webhook/grafana?to=PHONE_NUMBER"
+          httpMethod: POST
+          authorization_scheme: Bearer
+          authorization_credentials: "YOUR_API_KEY"
+          # Optional: use custom message template instead of default payload
+          # message: '{{ template "wacli-whatsapp" . }}'
+        disableResolveMessage: false
+
+templates:
+  - orgId: 1
+    name: wacli-whatsapp
+    template: |
+      {{ define "__wacli_status_emoji" -}}
+        {{- if eq .Status "firing" }}🚨{{- else if eq .Status "resolved" }}✅{{- else }}🔔{{- end -}}
+      {{- end }}
+
+      {{ define "__wacli_alert_list" -}}
+      {{ range . }}
+      • *{{ .Labels.alertname }}*{{ if .Labels.instance }} ({{ .Labels.instance }}){{ end }}
+        {{- if .Labels.severity }}  Severity: {{ .Labels.severity }}{{ end }}
+        {{- if .Annotations.summary }}
+        {{ .Annotations.summary }}{{ end }}
+        {{- if .Annotations.description }}
+        {{ .Annotations.description }}{{ end }}
+        {{- if .Values }}
+        {{- range $k, $v := .Values }}
+        {{ $k }}: {{ $v }}
+        {{- end }}{{ end }}
+        {{- if .DashboardURL }}
+        📊 {{ .DashboardURL }}{{ end }}
+        {{- if .SilenceURL }}
+        🔇 {{ .SilenceURL }}{{ end }}
+      {{ end -}}
+      {{- end }}
+
+      {{ define "wacli-whatsapp" -}}
+      {{ template "__wacli_status_emoji" . }} *Grafana Alert*
+
+      *{{ .Status | toUpper }}:* {{ .GroupLabels.alertname }}
+      {{- if .CommonAnnotations.summary }}
+      {{ .CommonAnnotations.summary }}
+      {{- end }}
+      {{- if .CommonAnnotations.description }}
+      {{ .CommonAnnotations.description }}
+      {{- end }}
+
+      {{- if gt (len .Alerts.Firing) 0 }}
+
+      *Firing:* {{ len .Alerts.Firing }} alert(s)
+      {{ template "__wacli_alert_list" .Alerts.Firing }}
+      {{- end }}
+
+      {{- if gt (len .Alerts.Resolved) 0 }}
+
+      *Resolved:* {{ len .Alerts.Resolved }} alert(s)
+      {{ template "__wacli_alert_list" .Alerts.Resolved }}
+      {{- end }}
+
+      {{- if .CommonLabels }}
+      *Labels:*
+      {{- range .CommonLabels.SortedPairs }}
+      {{- if or (eq .Name "severity") (eq .Name "priority") (eq .Name "team") (eq .Name "service") (eq .Name "namespace") }}
+      • {{ .Name }}: {{ .Value }}
+      {{- end }}
+      {{- end }}
+      {{- end }}
+
+      🔗 {{ .ExternalURL }}
+      {{- end }}

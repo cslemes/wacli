@@ -59,15 +59,21 @@ func webhookGrafanaHandler(app *app.App, cfg *Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Read raw body for debugging
 		bodyBytes, _ := c.GetRawData()
-		c.Request.Body = io.NopCloser(strings.NewReader(string(bodyBytes)))
+		rawPayload := string(bodyBytes)
+		fmt.Printf("DEBUG: Received webhook payload (%d bytes):\n%s\n", len(bodyBytes), rawPayload)
 
+		// Try to parse as Grafana JSON; if it fails, continue with raw body as message
 		var alert GrafanaAlert
-		if err := c.ShouldBindJSON(&alert); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "invalid Grafana webhook format: " + err.Error(),
-				"payload": string(bodyBytes),
-			})
-			return
+		var parseErr error
+		if len(bodyBytes) > 0 {
+			c.Request.Body = io.NopCloser(strings.NewReader(rawPayload))
+			parseErr = c.ShouldBindJSON(&alert)
+			if parseErr != nil {
+				fmt.Printf("WARN: Failed to parse as Grafana JSON (will try fallback): %v\n", parseErr)
+			} else {
+				fmt.Printf("DEBUG: Parsed alert - Title: %s, Status: %s, State: %s, Alerts count: %d\n",
+					alert.Title, alert.Status, alert.State, len(alert.Alerts))
+			}
 		}
 
 		// Get recipient from multiple sources (priority order):
@@ -91,9 +97,53 @@ func webhookGrafanaHandler(app *app.App, cfg *Config) gin.HandlerFunc {
 		}
 		if recipient == "" {
 			c.JSON(http.StatusBadRequest, gin.H{
-				"error":   "recipient required (use ?to=, X-WhatsApp-To header, or whatsapp_to annotation/tag in Grafana)",
-				"payload": string(bodyBytes),
-				"help":    "Add ?to=PHONE to URL or whatsapp_to annotation in Grafana alert",
+				"error":   "recipient required: add ?to=PHONE to URL, set X-WhatsApp-To header, or add whatsapp_to annotation in Grafana alert rule",
+				"payload": rawPayload,
+				"help":    "Example URL: /api/v1/webhook/grafana?to=5511999999999",
+			})
+			return
+		}
+
+		// If JSON parsing failed, use the raw body as the message (fallback for custom templates)
+		if parseErr != nil {
+			trimmed := strings.TrimSpace(rawPayload)
+			if trimmed == "" {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": "empty request body",
+				})
+				return
+			}
+			fmt.Printf("DEBUG: Using raw body as message (JSON parse failed), sending to %s\n", recipient)
+
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
+			defer cancel()
+
+			if err := app.EnsureAuthed(); err != nil {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "not authenticated: " + err.Error()})
+				return
+			}
+			if err := app.Connect(ctx, false, nil); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "connection failed: " + err.Error()})
+				return
+			}
+
+			toJID, err := wa.ParseUserOrJID(recipient)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid recipient: " + err.Error()})
+				return
+			}
+
+			msgID, err := app.WA().SendText(ctx, toJID, trimmed)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "send failed: " + err.Error()})
+				return
+			}
+
+			c.JSON(http.StatusOK, gin.H{
+				"sent":     true,
+				"to":       toJID.String(),
+				"id":       msgID,
+				"fallback": true,
 			})
 			return
 		}
