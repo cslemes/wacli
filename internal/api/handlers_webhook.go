@@ -108,12 +108,10 @@ func webhookGrafanaHandler(app *app.App, cfg *Config) gin.HandlerFunc {
 		if parseErr != nil {
 			trimmed := strings.TrimSpace(rawPayload)
 			if trimmed == "" {
-				c.JSON(http.StatusBadRequest, gin.H{
-					"error":   "empty or whitespace-only request body",
-					"help":    "In Grafana Webhook Contact Point, clear the 'Message' field so Grafana sends its default JSON payload. If using a custom template, make sure it is saved correctly in Alerting → Contact Points → Notification Templates.",
-					"payload": fmt.Sprintf("%q", rawPayload),
-				})
-				return
+				// Empty body — Grafana likely has a broken/empty Message template.
+				// Send a default alert message instead of failing.
+				fmt.Printf("WARN: Empty body received from Grafana. The webhook Message field in Grafana may need to be cleared. Sending default message.\n")
+				trimmed = "⚠️ Grafana alert received (empty payload — clear the Message field in Grafana Webhook Contact Point to get full alert details)"
 			}
 			fmt.Printf("DEBUG: Using raw body as message (JSON parse failed), sending to %s\n", recipient)
 

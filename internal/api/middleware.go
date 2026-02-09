@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -40,6 +41,11 @@ func APIKeyAuth(validKeys []string) gin.HandlerFunc {
 		}
 
 		if !keyMap[apiKey] {
+			fmt.Printf("DEBUG AUTH: received key=%q (len=%d), valid keys: ", apiKey, len(apiKey))
+			for k := range keyMap {
+				fmt.Printf("%q (len=%d) ", k, len(k))
+			}
+			fmt.Println()
 			c.JSON(http.StatusUnauthorized, gin.H{
 				"error": "Invalid API key",
 			})

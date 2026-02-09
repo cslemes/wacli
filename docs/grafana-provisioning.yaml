@@ -2,25 +2,8 @@
 #
 # Place this file at: /etc/grafana/provisioning/alerting/wacli-whatsapp.yaml
 # Then restart Grafana.
-#
-# Adjust WACLI_HOST, PORT, API_KEY, and PHONE_NUMBER to match your setup.
 
 apiVersion: 1
-
-contactPoints:
-  - orgId: 1
-    name: wacli-whatsapp
-    receivers:
-      - uid: wacli-webhook-1
-        type: webhook
-        settings:
-          url: "http://WACLI_HOST:PORT/api/v1/webhook/grafana?to=PHONE_NUMBER"
-          httpMethod: POST
-          authorization_scheme: Bearer
-          authorization_credentials: "YOUR_API_KEY"
-          # Optional: use custom message template instead of default payload
-          # message: '{{ template "wacli-whatsapp" . }}'
-        disableResolveMessage: false
 
 templates:
   - orgId: 1
