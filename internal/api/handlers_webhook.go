@@ -189,189 +189,28 @@ func webhookGrafanaHandler(app *app.App, cfg *Config) gin.HandlerFunc {
 func formatGrafanaMessage(alert GrafanaAlert) string {
 	var sb strings.Builder
 
-	// Status emoji
-	emoji := "🔔"
-	state := alert.State
-	if state == "" {
-		state = alert.Status
-	}
-
-	switch state {
-	case "alerting", "firing":
-		emoji = "🚨"
-	case "ok", "resolved":
-		emoji = "✅"
-	case "no_data":
-		emoji = "⚠️"
-	}
-
-	sb.WriteString(fmt.Sprintf("%s *Grafana Alert*\n\n", emoji))
-
-	// Use title from payload or build from labels
-	title := alert.Title
-	if title == "" && alert.CommonLabels != nil {
-		if name, ok := alert.CommonLabels["alertname"]; ok {
-			title = name
-		}
-	}
-	if title != "" {
-		sb.WriteString(fmt.Sprintf("*%s*\n", title))
-	}
-
-	sb.WriteString(fmt.Sprintf("Status: %s\n\n", strings.ToUpper(state)))
-
-	// Only use Grafana's pre-rendered message if we have no alerts data to format ourselves
-	if alert.Message != "" && len(alert.Alerts) == 0 {
-		sb.WriteString(fmt.Sprintf("%s\n\n", alert.Message))
-	}
-
-	// Separate firing and resolved alerts
-	var firing, resolved []struct {
-		Status       string                 `json:"status"`
-		Labels       map[string]string      `json:"labels"`
-		Annotations  map[string]string      `json:"annotations"`
-		StartsAt     string                 `json:"startsAt"`
-		EndsAt       string                 `json:"endsAt"`
-		GeneratorURL string                 `json:"generatorURL"`
-		Fingerprint  string                 `json:"fingerprint"`
-		SilenceURL   string                 `json:"silenceURL"`
-		DashboardURL string                 `json:"dashboardURL"`
-		PanelURL     string                 `json:"panelURL"`
-		Values       map[string]interface{} `json:"values"`
-	}
 	for _, a := range alert.Alerts {
+		// Emoji baseado no status do alerta individual
+		emoji := "🔥"
 		if a.Status == "resolved" {
-			resolved = append(resolved, a)
-		} else {
-			firing = append(firing, a)
+			emoji = "✅"
 		}
+
+		// Pega o monitor_name das labels
+		monitorName := a.Labels["monitor_name"]
+		if monitorName == "" {
+			monitorName = "Desconhecido"
+		}
+
+		// Monta a string exatamente como você pediu
+		sb.WriteString(fmt.Sprintf("%s *%s*\nMonitor: \"%s\"\n\n",
+			emoji,
+			strings.ToUpper(a.Status),
+			monitorName,
+		))
 	}
 
-	// Helper to get the best display name for an alert
-	alertDisplayName := func(a struct {
-		Status       string                 `json:"status"`
-		Labels       map[string]string      `json:"labels"`
-		Annotations  map[string]string      `json:"annotations"`
-		StartsAt     string                 `json:"startsAt"`
-		EndsAt       string                 `json:"endsAt"`
-		GeneratorURL string                 `json:"generatorURL"`
-		Fingerprint  string                 `json:"fingerprint"`
-		SilenceURL   string                 `json:"silenceURL"`
-		DashboardURL string                 `json:"dashboardURL"`
-		PanelURL     string                 `json:"panelURL"`
-		Values       map[string]interface{} `json:"values"`
-	}) string {
-		// Priority: monitor_name > name > alertname > instance
-		if name, ok := a.Labels["monitor_name"]; ok && name != "" {
-			return name
-		}
-		if name, ok := a.Labels["name"]; ok && name != "" {
-			return name
-		}
-		if name, ok := a.Labels["alertname"]; ok && name != "" {
-			return name
-		}
-		if inst, ok := a.Labels["instance"]; ok && inst != "" {
-			return inst
-		}
-		return "unknown"
-	}
-
-	// Helper to format a list of alerts
-	formatAlertList := func(alerts []struct {
-		Status       string                 `json:"status"`
-		Labels       map[string]string      `json:"labels"`
-		Annotations  map[string]string      `json:"annotations"`
-		StartsAt     string                 `json:"startsAt"`
-		EndsAt       string                 `json:"endsAt"`
-		GeneratorURL string                 `json:"generatorURL"`
-		Fingerprint  string                 `json:"fingerprint"`
-		SilenceURL   string                 `json:"silenceURL"`
-		DashboardURL string                 `json:"dashboardURL"`
-		PanelURL     string                 `json:"panelURL"`
-		Values       map[string]interface{} `json:"values"`
-	}, maxAlerts int) {
-		for i, a := range alerts {
-			if i >= maxAlerts {
-				sb.WriteString(fmt.Sprintf("  _... and %d more_\n", len(alerts)-maxAlerts))
-				break
-			}
-
-			name := alertDisplayName(a)
-
-			// Add extra context: monitor_type, monitor_hostname
-			var details []string
-			if mtype, ok := a.Labels["monitor_type"]; ok && mtype != "" {
-				details = append(details, mtype)
-			}
-			if host, ok := a.Labels["monitor_hostname"]; ok && host != "" {
-				details = append(details, host)
-			}
-
-			if len(details) > 0 {
-				sb.WriteString(fmt.Sprintf("• *%s* (%s)\n", name, strings.Join(details, " | ")))
-			} else {
-				sb.WriteString(fmt.Sprintf("• *%s*\n", name))
-			}
-
-			// Show summary/description from annotations
-			if summary, ok := a.Annotations["summary"]; ok && summary != "" {
-				sb.WriteString(fmt.Sprintf("  %s\n", summary))
-			}
-		}
-	}
-
-	// Firing alerts
-	if len(firing) > 0 {
-		sb.WriteString(fmt.Sprintf("*🔥 Firing:* %d alert(s)\n", len(firing)))
-		formatAlertList(firing, 10)
-		sb.WriteString("\n")
-	}
-
-	// Resolved alerts
-	if len(resolved) > 0 {
-		sb.WriteString(fmt.Sprintf("*✅ Resolved:* %d alert(s)\n", len(resolved)))
-		formatAlertList(resolved, 5)
-		sb.WriteString("\n")
-	}
-
-	// Add legacy evalMatches if present
-	if len(alert.EvalMatches) > 0 {
-		sb.WriteString("*Metrics:*\n")
-		for _, match := range alert.EvalMatches {
-			sb.WriteString(fmt.Sprintf("• %s: %v\n", match.Metric, match.Value))
-		}
-		sb.WriteString("\n")
-	}
-
-	// Add important labels (skip noisy ones)
-	if alert.CommonLabels != nil {
-		important := []string{"severity", "priority", "team", "service", "namespace", "job"}
-		hasImportant := false
-		for _, key := range important {
-			if value, ok := alert.CommonLabels[key]; ok {
-				if !hasImportant {
-					sb.WriteString("*Labels:*\n")
-					hasImportant = true
-				}
-				sb.WriteString(fmt.Sprintf("• %s: %s\n", key, value))
-			}
-		}
-		if hasImportant {
-			sb.WriteString("\n")
-		}
-	}
-
-	// Add link
-	if alert.ExternalURL != "" {
-		sb.WriteString(fmt.Sprintf("🔗 %s", alert.ExternalURL))
-	} else if alert.RuleURL != "" {
-		sb.WriteString(fmt.Sprintf("🔗 %s", alert.RuleURL))
-	} else if len(alert.Alerts) > 0 && alert.Alerts[0].GeneratorURL != "" {
-		sb.WriteString(fmt.Sprintf("🔗 %s", alert.Alerts[0].GeneratorURL))
-	}
-
-	return sb.String()
+	return strings.TrimSpace(sb.String())
 }
 
 // GenericWebhookRequest allows flexible webhook integration
