@@ -189,21 +189,33 @@ func webhookGrafanaHandler(app *app.App, cfg *Config) gin.HandlerFunc {
 func formatGrafanaMessage(alert GrafanaAlert) string {
 	var sb strings.Builder
 
-	for _, a := range alert.Alerts {
-		// Emoji baseado no status do alerta individual
+	if len(alert.Alerts) == 0 {
+		return "⚠️ Erro: Webhook recebido sem lista de alertas (Alerts count: 0)"
+	}
+
+	for i, a := range alert.Alerts {
+		// Log para ver o que existe dentro das labels no terminal
+		fmt.Printf("DEBUG: Alerta [%d] - Labels: %v\n", i, a.Labels)
+
 		emoji := "🔥"
 		if a.Status == "resolved" {
 			emoji = "✅"
 		}
 
-		// Pega o monitor_name das labels
-		monitorName := a.Labels["monitor_name"]
-		if monitorName == "" {
-			monitorName = "Desconhecido"
+		// Tenta pegar o monitor_name
+		monitorName, ok := a.Labels["monitor_name"]
+
+		// Se não encontrar 'monitor_name', tenta 'alertname' como fallback
+		if !ok || monitorName == "" {
+			monitorName = a.Labels["alertname"]
 		}
 
-		// Monta a string exatamente como você pediu
-		sb.WriteString(fmt.Sprintf("%s *%s*\nMonitor: \"%s\"\n\n",
+		// Se ainda assim estiver vazio, coloca um aviso
+		if monitorName == "" {
+			monitorName = "Nome não encontrado nas labels"
+		}
+
+		sb.WriteString(fmt.Sprintf("%s *%s*\nMonitor: %s\n\n",
 			emoji,
 			strings.ToUpper(a.Status),
 			monitorName,
